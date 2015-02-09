@@ -1,0 +1,27 @@
+1) Coolness of design (already an A for everyone :D )
+2) Professionalism of execution (hardware and software)
+3) Design methods
+		A) Modeling (SystemC modules)
+		B) Testing
+		
+---
+Should have the simulation ready to go.
+
+Next to turn in:
+	Block Diagram of Design
+		Schematic with connections
+		How is it wired up
+		Interfaces used
+	Parts List
+	
+Wednesday or Monday--design review.
+	Block diagram and parts list
+	Enough to put the system together, if it came in a box.
+
+---
+
+Person needs to follow hallways back to this room.
+Doors might be open, doors to rooms might be open.
+Cannot (won't need to) open or go through any doors
+(except for the one to the robot lab, which will be open).
+Going into a room or bumping into a wall disqualifies a run.

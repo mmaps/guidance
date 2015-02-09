@@ -1,0 +1,233 @@
+#include <opencv2/core/core.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <stdio.h>
+
+using namespace std;
+using namespace cv;
+
+void run_canny(cv::Mat a_frame, cv::Mat& ret_val);
+void run_houghP(cv::Mat a_frame, vector<Vec4i>& ret_val);
+void run_hough(cv::Mat a_frame, vector<Vec2f>& ret_val);
+void run_GFTT(cv::Mat a_frame, vector<Point2f>& ret_val);
+void draw_lines(vector<Vec4i> lines, cv::Mat& a_frame);
+void draw_rho_lines(vector<Vec2f> lines, cv::Mat& a_frame);
+void draw_points(vector<Point2f> lines, cv::Mat& a_frame);
+void get_points_from_line(Vec2f line, Point2f *pt1, Point2f *pt2);
+bool intersection (Point2f o1, Point2f p1, Point2f o2, Point2f p2, Point2f *r);
+bool slope_test(Vec2f line);
+
+int canny_low = 25;
+int canny_high = 100;
+RNG rng(12345);
+
+int main()
+{
+    // Open video file, check validity
+    VideoCapture camera(0);
+    if(!camera.isOpened())
+        return 1;
+    // Frame is the individual frame read in each loop iteration
+    Mat frame;
+    Mat frame_copy;
+    Mat result;
+    Mat canny_result;
+    Mat threshold_img;
+    // Windows to output results (will not be used in final)
+    namedWindow("Canny");
+    namedWindow("Threshold");
+    namedWindow("Original");
+    // Local Var
+    vector<Point2f> feature_points;
+    vector<Vec4i> hough_lines;
+    vector<Vec2f> hough_lines2;
+    vector<Mat> hsv_planes;
+    vector<vector<Point> > contours;
+    vector<Vec4i> hierarchy;
+    // Main program loop
+    while(true){
+        // Read a frame, check validity
+        if(!camera.read(frame))
+            break;
+        //erode(frame, frame, Mat());
+        run_canny(frame, canny_result);
+        run_hough(canny_result, hough_lines2);
+        //run_houghP(canny_result, hough_lines);
+        /*
+        //Mat ceiling_ROI = canny_result.rowRange(0, 200);
+        //inRange(frame, Scalar(254,254,254), Scalar(255,255,255), threshold_img);
+        //threshold(threshold_img, frame_copy, 0, 255, CV_THRESH_BINARY);
+        //run_GFTT(threshold, feature_points);
+        //run_houghP(threshold, hough_lines2);
+        //findContours(frame_copy, contours, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
+        //Mat drawing = Mat::zeros(frame_copy.size(), CV_8UC3);
+        for(int i=0; i<contours.size(); i++){
+            Scalar color = Scalar(rng.uniform(0,255), rng.uniform(0,255), rng.uniform(0,255));
+            drawContours(drawing, contours, i, color, 2, 8);
+        }
+        // Change canny result to color for lines
+        */
+        cvtColor(canny_result, result, CV_GRAY2BGR);
+        //draw_lines(hough_lines, result);
+        draw_rho_lines(hough_lines2, result);
+        //draw_points(feature_points, result);
+
+        //imshow("Threshold", threshold_img);
+        imshow("Canny", result);
+        //imshow("Original", drawing);
+        
+        if(waitKey(10)>=0)
+            break;
+    }
+}
+
+void run_GFTT(cv::Mat a_frame, vector<Point2f>& ret_val)
+{
+    //goodFeaturesToTrack(a_frame, ret_val, 10, .9, 10.0, cv::noArray(), 5, false);
+    goodFeaturesToTrack(a_frame, ret_val, 10, .9, 10.0);
+}
+
+void draw_points(vector<Point2f> points, cv::Mat& ret_val)
+{
+    for(size_t i=0; i<points.size(); i++){
+      circle(ret_val, points.at(i), 3, Scalar(255,0,0), 2);
+    }
+}
+
+void draw_lines(vector<Vec4i> lines, cv::Mat& a_frame)
+{
+    for(size_t i=0; i<lines.size(); i++){
+      Vec4i l = lines[i];
+      //if(abs(l[0] - l[2]) < 30 || abs(l[1] - l[3]) < 30)
+          line(a_frame, Point(l[0], l[1]), Point(l[2], l[3]), Scalar(0,0,255), 3, CV_AA);
+    }
+}
+
+void draw_rho_lines(vector<Vec2f> lines, cv::Mat& a_frame)
+{
+    int votes = 0;
+    float rho, theta;
+    double a, b;
+    double x0, y0;
+    Point2f a1, a2, b1, b2, intersect;
+    bool  result;
+    int counter = 0;
+    printf("%d    ", lines.size());
+    lines.erase(remove_if(lines.begin(), lines.end(), slope_test), lines.end());
+    printf("%d\n", lines.size());
+    do{
+    counter++;
+    votes=0;
+    int idx1 = rng.uniform(0, lines.size());
+    int idx2 = rng.uniform(0, lines.size());
+    //
+    rho = lines[idx1][0]; theta = lines[idx1][1];
+    a = cos(theta); b = sin(theta);
+    x0 = a*rho; y0 = b*rho;
+    a1.x = cvRound(x0 + 1000*(-b));
+    a1.y = cvRound(y0 + 1000*(a));
+    a2.x = cvRound(x0 - 1000*(-b));
+    a2.y = cvRound(y0 - 1000*(a));
+    //
+    rho = lines[idx2][0]; theta = lines[idx2][1];
+    a = cos(theta); b = sin(theta);
+    x0 = a*rho; y0 = b*rho;
+    b1.x = cvRound(x0 + 1000*(-b));
+    b1.y = cvRound(y0 + 1000*(a));
+    b2.x = cvRound(x0 - 1000*(-b));
+    b2.y = cvRound(y0 - 1000*(a));
+    result = intersection(a1, a2, b1, b2, &intersect);
+    for(size_t i = 0; i<lines.size(); i++){
+      rho = lines[i][0]; theta = lines[i][1];
+      a = cos(theta); b = sin(theta);
+      double distance = intersect.x*a + intersect.y*b - rho;
+      if(distance < 10){
+          votes++;
+      }
+    }
+    }while(votes < (lines.size()/2.) | counter < 10);
+    if(result){
+      circle(a_frame, intersect, 3, Scalar(255,0,0), 2);
+    }
+    //
+    for( size_t i = 0; i < lines.size(); i++ )
+    {
+      rho = lines[i][0]; theta = lines[i][1];
+      Point pt1, pt2;
+      a = cos(theta); b = sin(theta);
+      double m =abs((-a)/b);
+      if(m < .2 | m > 3)
+          continue;
+      double x0 = a*rho, y0 = b*rho;
+      pt1.x = cvRound(x0 + 1000*(-b));
+      pt1.y = cvRound(y0 + 1000*(a));
+      pt2.x = cvRound(x0 - 1000*(-b));
+      pt2.y = cvRound(y0 - 1000*(a));
+
+      line( a_frame, pt1, pt2, Scalar(0,0,255), 1, CV_AA);
+    }
+}
+
+bool slope_test(Vec2f line)
+{
+    float rho = line[0], theta = line[1];
+    double a = cos(theta), b = sin(theta);
+    double x0 = a*rho, y0 = b*rho;
+    double m =abs((-a)/b);
+    if(m < .2 | m > 3)
+      return true;
+    return false;
+}
+
+void get_points_from_line(Vec2f line, Point2f* pt1, Point2f* pt2)
+{
+    float rho = line[0], theta = line[1];
+    double a = cos(theta), b = sin(theta);
+    double x0 = a*rho, y0 = b*rho;
+    pt1->x = x0 + (-b);
+    pt1->y = y0 + (a);
+    pt2->x = x0 - (-b);
+    pt2->y = y0 - (a);
+}
+
+void run_houghP(cv::Mat a_frame, vector<Vec4i>& ret_val)
+{
+    HoughLinesP(a_frame, ret_val, 1, CV_PI/180, 80, 100, 10);
+}
+
+void run_hough(cv::Mat a_frame, vector<Vec2f>& ret_val)
+{
+    HoughLines(a_frame, ret_val, 1, CV_PI/180, 75, 0, 0);
+}
+
+void run_canny(cv::Mat a_frame, cv::Mat& ret_val)
+{
+    Mat small;
+    Scalar img_mean = 0.;
+    cvtColor(a_frame, ret_val, CV_BGR2GRAY);
+    equalizeHist(ret_val, ret_val);
+    medianBlur(ret_val, ret_val, 11); 
+    //pyrDown(ret_val, small, Size(a_frame.cols/2, a_frame.rows/2));
+    //pyrUp(small, ret_val, Size(small.cols*2, small.rows*2));
+    img_mean = mean(ret_val);
+    double wong_hi = img_mean[0] * 1.66;
+    double wong_lo = 0.4 * wong_hi;
+    Canny(ret_val, ret_val, wong_lo, wong_hi);
+}
+
+// Finds the intersection of two lines, or returns false.
+// The lines are defined by (o1, p1) and (o2, p2).
+bool intersection (Point2f o1, Point2f p1, Point2f o2, Point2f p2, Point2f *r)
+{
+   Point2f x = o2 - o1;
+   Point2f d1 = p1 - o1;
+   Point2f d2 = p2 - o2;
+
+   float cross = d1.x*d2.y - d1.y*d2.x;
+   if (abs(cross) < /*EPS*/1e-8)
+     return false;
+
+   double t1 = (x.x * d2.y - x.y * d2.x)/cross;
+   *r = o1 + d1 * t1;
+   return true;
+}
